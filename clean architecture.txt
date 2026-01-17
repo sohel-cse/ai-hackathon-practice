@@ -1,0 +1,591 @@
+Write an implementation of all the stories below using TypeScript, NodeJS, ExpressJS,  and MongoDB as database, use mongo node driver, not mongoose.
+
+1) Register User
+User Story
+As a new user, I want to register an account using my identity details so that I can securely access the system and receive communications relevant to my account.
+Business Rules & Complex Validation
+Identity uniqueness
+
+
+Email must be unique (case-insensitive, trimmed, normalized; treat User+tag@gmail.com vs user@gmail.com based on your email-normalization policy).
+
+
+Phone must be unique (E.164 normalized).
+
+
+Username (if used) must be unique and cannot be a reserved word (e.g., admin, support, system, root).
+
+
+Email validation
+
+
+Must be syntactically valid.
+
+
+Domain must not be in a blocked list (temporary email domains, known spam domains).
+
+
+Optional: Must pass MX-record check (if your architecture supports it).
+
+
+Phone validation
+
+
+Must be valid for the chosen country.
+
+
+If country is Bangladesh, enforce operator prefix rules (config-driven).
+
+
+Name validation
+
+
+Full name length 2–80, must not contain profanity or restricted keywords.
+
+
+Must not be only symbols/digits.
+
+
+Password policy
+
+
+Min length (e.g., 12), must include at least 3 of 4 categories (upper/lower/digit/symbol).
+
+
+Must not contain email, username, or common dictionary words.
+
+
+Must not match any of last N passwords (if re-register scenario exists).
+
+
+Must not be in a known breached-password list (conceptual integration).
+
+
+Age / eligibility
+
+
+If date of birth is collected: must be within allowed range and meet minimum age requirement.
+
+
+Terms & consent
+
+
+User must accept Terms + Privacy Policy versions (store version numbers).
+
+
+Marketing consent optional and must be explicitly opted-in (no default opt-in).
+
+
+Risk and fraud checks
+
+
+Rate limit registration attempts per IP / device fingerprint.
+
+
+Block if too many attempts or suspicious patterns (same device creating many accounts).
+
+
+Optional: challenge step (captcha/OTP) based on risk score.
+
+
+Account state
+
+
+New user state is PendingVerification until email/phone verified, or Active if verification is disabled by policy.
+
+
+Audit
+
+
+Record registration metadata: timestamp, channel, IP, device info (if available), consent versions.
+
+
+Acceptance Criteria
+AC1: Registration fails if email already exists (case-insensitive) with a clear error message.
+
+
+AC2: Registration fails if phone already exists after normalization.
+
+
+AC3: Password must satisfy policy; failure returns specific rule violations (without leaking sensitive info).
+
+
+AC4: Terms and privacy policy acceptance is mandatory; registration cannot complete without it.
+
+
+AC5: If risk threshold is exceeded, registration is blocked or requires additional verification (policy-driven).
+
+
+AC6: On success, user is created with correct initial status and audit metadata captured.
+
+
+AC7: Personally identifiable data is stored following masking/at-rest encryption policy (implementation detail later).
+
+
+Definition of Done
+Story includes validation rules documented and test cases listed.
+
+
+Domain invariants are enforceable regardless of API (no bypass).
+
+
+Audit trail recorded.
+
+
+Error responses standardized.
+
+
+
+2) View User Profile
+User Story
+As an authenticated user, I want to view my profile so that I can verify my personal information and account status.
+Business Rules & Complex Validation
+Authorization
+
+
+A user can view their own profile.
+
+
+Admin can view any user profile, but only with the UserRead permission.
+
+
+Some sensitive fields (e.g., national ID, security flags) only visible to specific roles.
+
+
+Data minimization
+
+
+Do not return secrets: password hash, security answers, internal risk scores.
+
+
+Mask sensitive fields: partially mask phone/email based on policy unless user re-verifies access.
+
+
+Consistency rules
+
+
+If the user is Deactivated, profile view must still be allowed for admin, but user may be restricted (policy-driven).
+
+
+Privacy & compliance
+
+
+If user requests data restriction, certain fields must be hidden.
+
+
+Audit
+
+
+Log access to profile by admin including reason code (optional policy).
+
+
+Acceptance Criteria
+AC1: User can fetch their own profile and sees only allowed fields.
+
+
+AC2: User cannot view another user’s profile unless they have admin permissions.
+
+
+AC3: Response excludes all secrets and internal-only fields.
+
+
+AC4: Masking rules apply to sensitive fields based on policy.
+
+
+AC5: Admin profile access is logged (who, when, which user).
+
+
+Definition of Done
+RBAC rules implemented and test-covered.
+
+
+Response contract documented.
+
+
+Audit logging for privileged access.
+
+
+
+3) Update User Profile (With Rules)
+User Story
+As an authenticated user, I want to update permitted profile fields so that my account information remains accurate while preserving security and compliance constraints.
+Updatable Fields (Example Policy)
+Allowed: display name, address, photo URL, phone (with verification), secondary email (optional), preferences.
+ Not allowed: primary email (or allowed only via special flow), username (rare), DOB (restricted), roles, status flags.
+Business Rules & Complex Validation
+Field-level permissions
+
+
+Normal user can update only “self-editable” fields.
+
+
+Admin can update additional fields but not security-critical ones without elevated permission.
+
+
+Change constraints
+
+
+Phone change requires OTP verification; until verified, set PhonePendingVerification and keep old phone active or freeze operations (policy-driven).
+
+
+Email change (if allowed) requires re-authentication + email verification; old email remains until verified.
+
+
+DOB can only be changed once or only by admin with reason.
+
+
+Data validation
+
+
+Address fields validated by country rules; postal code format by country.
+
+
+Photo URL must be from allowed domains/CDNs or pass content policy.
+
+
+Names cannot contain restricted/profane terms.
+
+
+Concurrency
+
+
+Use optimistic concurrency: updates require profile version/etag; reject if stale to prevent overwrites.
+
+
+Security checks
+
+
+Re-auth required for sensitive changes (phone/email).
+
+
+Rate limit profile edits to prevent abuse (e.g., 10 changes/day).
+
+
+Audit
+
+
+Log each changed field with before/after (PII-safe: store hashes or masked versions where required).
+
+
+Acceptance Criteria
+AC1: User can update allowed fields; disallowed fields are rejected.
+
+
+AC2: Changing phone/email triggers verification workflow and sets correct interim status.
+
+
+AC3: Update requests with stale version/etag are rejected with a conflict error.
+
+
+AC4: Validation rules are applied per field and return actionable messages.
+
+
+AC5: Update actions are audited (who, what changed, when).
+
+
+Definition of Done
+Field-level policy documented and enforced.
+
+
+Concurrency handled.
+
+
+Verification triggers exist (even if mocked).
+
+
+Tests cover user vs admin scenarios.
+
+
+
+4) Change Password
+User Story
+As an authenticated user, I want to change my password so that I can keep my account secure.
+Business Rules & Complex Validation
+Re-authentication
+
+
+Requires current password (or equivalent step if SSO).
+
+
+If user recently logged in, may allow within “reauth window” (policy-driven).
+
+
+Password policy
+
+
+Must meet complexity rules (length, categories, breached list).
+
+
+Must not match last N passwords.
+
+
+Must not contain personal identifiers (email, phone, name fragments).
+
+
+Attack prevention
+
+
+Rate limit wrong current-password attempts; lockout or step-up verification after threshold.
+
+
+Invalidate all sessions/tokens after successful password change (or keep current session only, policy-driven).
+
+
+Account status
+
+
+Deactivated users cannot change password unless admin reactivates or recovery flow is used.
+
+
+Audit
+
+
+Record password change event without storing password content.
+
+
+Acceptance Criteria
+AC1: Password change fails if current password is incorrect and counts toward lockout thresholds.
+
+
+AC2: New password must pass policy + history checks.
+
+
+AC3: On success, sessions are invalidated according to policy.
+
+
+AC4: Password change is logged as a security event.
+
+
+Definition of Done
+Password rules centralized.
+
+
+History enforcement works.
+
+
+Token/session invalidation behavior documented and tested.
+
+
+
+5) Deactivate / Activate User
+User Story
+As an admin (or authorized system), I want to deactivate or reactivate a user so that access can be controlled for security, compliance, or operational reasons.
+Business Rules & Complex Validation
+Authorization
+
+
+Only users with UserStatusManage can deactivate/activate.
+
+
+You cannot deactivate yourself unless you have a special permission (prevents lockout).
+
+
+Protected accounts
+
+
+Certain accounts cannot be deactivated (system accounts, service accounts) unless super-admin.
+
+
+Reason & evidence
+
+
+Deactivation requires a reason code (e.g., fraud, requested, policy violation).
+
+
+Optional evidence/reference ID required for certain reasons.
+
+
+Side effects
+
+
+Deactivation revokes all active sessions immediately.
+
+
+Pending operations may be canceled or frozen (policy-driven).
+
+
+Activation may require password reset if deactivation reason was security-related.
+
+
+State transitions
+
+
+Only allow valid transitions: Active → Deactivated; Deactivated → Active.
+
+
+Cannot activate a user who is permanently banned without special override.
+
+
+Acceptance Criteria
+AC1: Unauthorized users cannot deactivate/activate accounts.
+
+
+AC2: Deactivation requires reason code; missing reason fails validation.
+
+
+AC3: Deactivation revokes sessions and blocks login immediately.
+
+
+AC4: Activation enforces any “security re-entry” requirements (e.g., force reset).
+
+
+AC5: All actions are audited with actor + reason.
+
+
+Definition of Done
+State machine rules implemented.
+
+
+Session revocation strategy defined.
+
+
+Audit logs complete and queryable.
+
+
+
+6) Role Assignment (Basic RBAC)
+User Story
+As an admin, I want to assign and revoke roles for a user so that users have appropriate permissions to perform their duties.
+Business Rules & Complex Validation
+Authorization
+
+
+Admin must have RoleManage permission.
+
+
+Role changes require “least privilege” enforcement: you cannot assign roles higher than your own privilege level.
+
+
+Role constraints
+
+
+Mutually exclusive roles (e.g., Auditor cannot be combined with Cashier if segregation-of-duties is required).
+
+
+Some roles require prerequisites (e.g., Manager requires verified email + active status).
+
+
+User state
+
+
+Deactivated users cannot be granted new roles (policy-driven).
+
+
+Approval workflow (optional but realistic)
+
+
+High-risk roles (e.g., SuperAdmin) require dual approval (second admin).
+
+
+Audit
+
+
+Record who granted/revoked which role, when, and why.
+
+
+Acceptance Criteria
+AC1: Only authorized admins can change roles.
+
+
+AC2: System prevents assigning roles above admin’s privilege level.
+
+
+AC3: Conflicting role combinations are rejected with explicit reason.
+
+
+AC4: High-risk roles follow approval rules if enabled.
+
+
+AC5: Role change history is recorded and retrievable.
+
+
+Definition of Done
+RBAC rules documented and enforced.
+
+
+Conflict/prerequisite rules are configurable (policy-driven).
+
+
+Audit + optional approval flow supported.
+
+
+
+7) Search / List Users (Basic Admin)
+User Story
+As an admin, I want to search and list users by different criteria so that I can manage accounts efficiently.
+Business Rules & Complex Validation
+Authorization
+
+
+Requires UserRead permission; exporting may require UserExport.
+
+
+PII protection
+
+
+Search results must mask sensitive fields by default.
+
+
+Searching by full phone/email may require elevated permission; otherwise allow partial match only.
+
+
+Query constraints
+
+
+Enforce paging limits (max page size e.g., 50).
+
+
+Prevent expensive wildcard searches (e.g., reject leading wildcards, enforce minimum query length).
+
+
+Filtering rules
+
+
+Filters: status (active/deactivated/pending), role, created date range, verification status.
+
+
+Date ranges must be valid (start <= end, range not exceeding policy limit).
+
+
+Sorting
+
+
+Allow only whitelisted sort fields; invalid sorts are rejected.
+
+
+Abuse prevention
+
+
+Rate limit admin search queries to prevent scraping.
+
+
+Audit searches optionally, especially for broad queries.
+
+
+Acceptance Criteria
+AC1: Only authorized admins can list/search users.
+
+
+AC2: Requests must include paging; page size beyond max is rejected or clamped.
+
+
+AC3: Search enforces query constraints (min length, wildcard rules, allowed fields).
+
+
+AC4: Results are masked unless admin has elevated permission.
+
+
+AC5: Sorting/filtering validation prevents invalid or expensive queries.
+
+
+AC6: Admin searches are rate-limited and optionally audited.
+
+
+Definition of Done
+Query contract documented (filters, sorts, paging).
+
+
+PII masking implemented.
+
+
+Performance constraints defined and tested.
