@@ -23,6 +23,8 @@ export interface UserProps {
     roles: Role[];
     termsVersion: string;
     privacyVersion: string;
+    verificationToken?: string;
+    pendingEmail?: EmailAddress;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -51,6 +53,34 @@ export class User {
     public getStatus(): UserStatus { return this.props.status; }
     public getRoles(): Role[] { return this.props.roles; }
     public getPassword(): Password { return this.props.password; }
+    public getVerificationToken(): string | undefined { return this.props.verificationToken; }
+    public getPendingEmail(): EmailAddress | undefined { return this.props.pendingEmail; }
+
+    public setVerificationToken(token: string): void {
+        this.props.verificationToken = token;
+        this.props.updatedAt = new Date();
+    }
+
+    public verifyEmail(token: string): void {
+        if (this.props.verificationToken !== token) {
+            throw new Error('Invalid verification token');
+        }
+
+        if (this.props.pendingEmail) {
+            this.props.email = this.props.pendingEmail;
+            this.props.pendingEmail = undefined;
+        }
+
+        this.props.status = UserStatus.ACTIVE;
+        this.props.verificationToken = undefined;
+        this.props.updatedAt = new Date();
+    }
+
+    public initiateEmailChange(newEmail: EmailAddress, token: string): void {
+        this.props.pendingEmail = newEmail;
+        this.props.verificationToken = token;
+        this.props.updatedAt = new Date();
+    }
 
     public deactivate(): void {
         if (this.props.status === UserStatus.DEACTIVATED) {
@@ -79,6 +109,10 @@ export class User {
             phone: this.props.phone.getValue(),
             status: this.props.status,
             roles: this.props.roles,
+            termsVersion: this.props.termsVersion,
+            privacyVersion: this.props.privacyVersion,
+            verificationToken: this.props.verificationToken,
+            pendingEmail: this.props.pendingEmail?.getValue(),
             createdAt: this.props.createdAt,
             updatedAt: this.props.updatedAt
         };

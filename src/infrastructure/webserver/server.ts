@@ -3,29 +3,39 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { Database } from '../database/mongodb';
 import { MongoUserRepository } from '../../interface-adapters/repositories/MongoUserRepository';
+import { MongoAuditRepository } from '../../interface-adapters/repositories/MongoAuditRepository';
+import { NodemailerEmailService } from '../../infrastructure/external-services/NodemailerEmailService';
 import { RegisterUser } from '../../application/use-cases/RegisterUser';
 import { ViewProfile } from '../../application/use-cases/ViewProfile';
 import { UpdateProfile } from '../../application/use-cases/UpdateProfile';
 import { AuthenticateUser } from '../../application/use-cases/AuthenticateUser';
+import { VerifyEmail } from '../../application/use-cases/VerifyEmail';
+import { ChangeEmail } from '../../application/use-cases/ChangeEmail';
 import { authMiddleware, AuthRequest } from './middleware/auth';
+import { authRateLimiter, generalRateLimiter } from './middleware/rate-limit';
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+app.use(generalRateLimiter);
 
 const startServer = async () => {
     const db = await Database.connect();
     const userRepository = new MongoUserRepository(db);
+    const auditRepository = new MongoAuditRepository(db);
+    const emailService = new NodemailerEmailService();
 
-    const registerUserUseCase = new RegisterUser(userRepository);
+    const registerUserUseCase = new RegisterUser(userRepository, auditRepository, emailService);
     const viewProfileUseCase = new ViewProfile(userRepository);
     const updateProfileUseCase = new UpdateProfile(userRepository);
     const authenticateUserUseCase = new AuthenticateUser(userRepository);
+    const verifyEmailUseCase = new VerifyEmail(userRepository, auditRepository);
+    const changeEmailUseCase = new ChangeEmail(userRepository, auditRepository, emailService);
 
     // Auth Route
-    app.post('/api/auth/login', async (req: Request, res: Response) => {
+    app.post('/api/auth/login', authRateLimiter, async (req: Request, res: Response) => {
         try {
             const result = await authenticateUserUseCase.execute(req.body);
             res.json(result);
@@ -35,10 +45,36 @@ const startServer = async () => {
     });
 
     // Register User Route
-    app.post('/api/users/register', async (req: Request, res: Response) => {
+    app.post('/api/users/register', authRateLimiter, async (req: Request, res: Response) => {
         try {
             const result = await registerUserUseCase.execute(req.body);
             res.status(201).json(result);
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    // Email Verification Route
+    app.post('/api/users/:id/verify', async (req: Request, res: Response) => {
+        try {
+            await verifyEmailUseCase.execute({
+                userId: req.params.id as string,
+                token: req.body.token
+            });
+            res.json({ message: 'Email verified successfully' });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    // Email Change Route
+    app.post('/api/users/me/change-email', authMiddleware, async (req: AuthRequest, res: Response) => {
+        try {
+            await changeEmailUseCase.execute({
+                userId: req.user!.id,
+                newEmail: req.body.newEmail
+            });
+            res.json({ message: 'Email change initiated. Please verify your new email.' });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }
